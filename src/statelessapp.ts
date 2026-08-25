@@ -134,6 +134,7 @@ export interface StatelessAppSpec {
       limit?: string | number;
     };
   }>;
+  initContainers?: io.k8s.api.core.v1.Container[];
   imagePullSecrets?: string[];
   terminationGracePeriodSeconds?: number;
   nodeAffinityMode?: "on-demand" | "spot";
@@ -445,6 +446,9 @@ export class StatelessApp {
             nodeSelector: this.spec.nodeSelector,
             affinity: this.spec.affinity,
             volumes,
+            ...(this.spec.initContainers
+              ? { initContainers: this.spec.initContainers }
+              : {}),
             ...(this.spec.nodeAffinityMode === "on-demand" ||
             this.spec.nodeAffinityMode === "spot"
               ? {
