@@ -162,6 +162,7 @@ const ingressClasses = [
   "private",
   "public",
   "security-nginx",
+  "traefik",
 ] as const;
 
 export type IngressClasses = (typeof ingressClasses)[number];
