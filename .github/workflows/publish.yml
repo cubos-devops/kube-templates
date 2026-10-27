@@ -1,0 +1,59 @@
+name: Publish
+
+# Publica `@cubos/kube-templates` no npm quando uma release é publicada no GitHub
+# (Releases -> Draft a new release). A versão vem da tag da release: `v1.2.3` -> `1.2.3`.
+# Pré-release (`v1.2.3-rc.1`, marcada como "pre-release") sai sob a dist-tag `next`.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  # npm Trusted Publishing (OIDC): sem NPM_TOKEN. O pacote precisa ter este repo e este
+  # workflow (`publish.yml`) cadastrados como Trusted Publisher em npmjs.com. Também gera o
+  # provenance assinado.
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish (npm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Validate release tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Tag '$TAG' não é semver no formato vX.Y.Z (ou vX.Y.Z-pre)."
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npx tsc
+
+      - name: Set version from tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          cd dist
+          cp ../package.json ../README.md .
+          npm version "${TAG#v}" --no-git-tag-version
+
+      - name: Publish
+        working-directory: dist
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            npm publish --access public --tag next
+          else
+            npm publish --access public
+          fi

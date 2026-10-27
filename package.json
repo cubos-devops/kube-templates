@@ -1,6 +1,15 @@
 {
   "name": "@cubos/kube-templates",
   "version": "1.0.0",
+  "description": "Classes TypeScript tipadas que geram manifests Kubernetes (YAML) prontos para kubectl apply",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cubos-devops/kube-templates.git"
+  },
+  "homepage": "https://github.com/cubos-devops/kube-templates#readme",
+  "bugs": {
+    "url": "https://github.com/cubos-devops/kube-templates/issues"
+  },
   "main": "index.js",
   "types": "index.d.ts",
   "engines": {
