@@ -13,6 +13,7 @@ Mantida pela [Cubos](https://cubos.io). Repositório: `github.com/cubos-devops/k
 - [Começando](#começando)
 - [Recursos disponíveis](#recursos-disponíveis)
 - [Exemplos](#exemplos)
+- [Deploy em pipelines (forma recomendada)](#deploy-em-pipelines-forma-recomendada)
 - [Funções auxiliares](#funções-auxiliares)
 - [Tipos do Kubernetes](#tipos-do-kubernetes)
 - [Desenvolvimento](#desenvolvimento)
@@ -202,6 +203,102 @@ console.log(report.yaml);
 
 Os specs de cada classe (campos obrigatórios e opcionais) estão tipados: o editor mostra tudo
 com autocompletar, e o código-fonte em [`src/`](src) é a especificação de cada recurso.
+
+## Deploy em pipelines (forma recomendada)
+
+A forma recomendada de aplicar recursos gerados com o kube-templates num cluster é a imagem
+[`ghcr.io/cubos-devops/cli/k8s`](https://github.com/cubos-devops/cli), do repositório
+[`cubos-devops/cli`](https://github.com/cubos-devops/cli). É uma imagem enxuta, só para deploy em
+Kubernetes: traz `kubectl`, Node.js, `ts-node`, `ejs-cli`, o próprio `@cubos/kube-templates` e os
+scripts `cluster_from_env` e `deploy`. Não é preciso rodar `npm install` no pipeline nem montar
+kubeconfig à mão.
+
+O `deploy` lê a pasta `deploy/` do repositório da aplicação e aplica tudo com `kubectl apply`:
+
+- `deploy/*.ts`: arquivos TypeScript que exportam por padrão uma lista de recursos do
+  kube-templates (o `deploy` imprime o `.yaml` de cada item);
+- `deploy/*.yml`: YAML puro, ou template [EJS](https://ejs.co) se tiver `<% %>`;
+- `deploy/*.ejs`: templates EJS.
+
+```typescript
+// deploy/app.ts
+import { Namespace, StatelessApp } from "@cubos/kube-templates";
+
+export default [
+  new Namespace({ name: "my-app" }),
+  new StatelessApp(
+    { name: "api", namespace: "my-app" },
+    {
+      image: "my-registry/my-api:latest",
+      cpu: { request: "100m", limit: "500m" },
+      memory: { request: "128Mi", limit: "512Mi" },
+      ports: [{ type: "http", port: 8080 }],
+    },
+  ),
+];
+```
+
+O pacote `@cubos/kube-templates` é resolvido a partir da instalação que já vem na imagem, então a
+versão usada no deploy é a embutida nela (definida no Dockerfile da `cli`).
+
+As credenciais do cluster vêm de três variáveis com um prefixo à sua escolha (aqui `CLUSTER_PRD`):
+`CLUSTER_PRD_K8S_SERVER_URL`, `CLUSTER_PRD_K8S_SERVER_CA` (CA em Base64) e `CLUSTER_PRD_K8S_TOKEN`.
+Guarde-as como secrets/variáveis protegidas do CI.
+
+### GitHub Actions
+
+A action roda `cluster_from_env` e depois `deploy` num único passo:
+
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cubos-devops/cli@v1
+        with:
+          cluster: CLUSTER_PRD
+        env:
+          CLUSTER_PRD_K8S_SERVER_URL: ${{ secrets.CLUSTER_PRD_K8S_SERVER_URL }}
+          CLUSTER_PRD_K8S_SERVER_CA: ${{ secrets.CLUSTER_PRD_K8S_SERVER_CA }}
+          CLUSTER_PRD_K8S_TOKEN: ${{ secrets.CLUSTER_PRD_K8S_TOKEN }}
+```
+
+Para rodar comandos próprios contra o cluster (por exemplo `kubectl get pods`), use a imagem como
+container do job:
+
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    container: ghcr.io/cubos-devops/cli/k8s
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          cluster_from_env CLUSTER_PRD
+          deploy
+        env:
+          CLUSTER_PRD_K8S_SERVER_URL: ${{ secrets.CLUSTER_PRD_K8S_SERVER_URL }}
+          CLUSTER_PRD_K8S_SERVER_CA: ${{ secrets.CLUSTER_PRD_K8S_SERVER_CA }}
+          CLUSTER_PRD_K8S_TOKEN: ${{ secrets.CLUSTER_PRD_K8S_TOKEN }}
+```
+
+### GitLab CI
+
+```yaml
+Deploy:
+  stage: deploy
+  image: ghcr.io/cubos-devops/cli/k8s
+  only:
+    - main
+  script:
+    - cluster_from_env CLUSTER_PRD
+    - deploy
+```
+
+Todos os inputs da action e as demais imagens estão documentados no
+[README da `cli`](https://github.com/cubos-devops/cli#readme).
 
 ## Funções auxiliares
 
