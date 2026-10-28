@@ -1,6 +1,6 @@
 import { URL } from "node:url";
 
-import { Cron } from "./cron";
+import { assertMemoryEmptyDirFits, Cron, type EmptyDirVolume } from "./cron";
 import type { io } from "./generated";
 import type { IngressClasses } from "./helpers";
 import {
@@ -104,14 +104,16 @@ export interface StatelessAppSpec {
       startup?: StartupProbeConfig;
     };
   volumes?: Array<
-    {
-      type: "configMap" | "secret";
-      name: string;
-      optional?: boolean;
-      mountPath: string;
-      defaultMode?: number;
-      items?: Array<{ key: string; path: string }>;
-    } & io.k8s.api.core.v1.VolumeMount
+    | ({
+        type: "configMap" | "secret";
+        name: string;
+        optional?: boolean;
+        mountPath: string;
+        defaultMode?: number;
+        items?: Array<{ key: string; path: string }>;
+      } & io.k8s.api.core.v1.VolumeMount)
+    | (EmptyDirVolume &
+        Omit<io.k8s.api.core.v1.VolumeMount, "name" | "readOnly">)
   >;
   crons?: Array<{
     name: string;
@@ -332,6 +334,22 @@ export class StatelessApp {
 
     for (const volume of this.spec.volumes ?? []) {
       const name = `vol-${volume.mountPath.replace(/[^a-zA-Z0-9]/gu, "")}`;
+
+      if (volume.type === "emptyDir") {
+        assertMemoryEmptyDirFits(volume, this.spec.memory.limit);
+        volumes.push({
+          name,
+          emptyDir: { medium: volume.medium, sizeLimit: volume.sizeLimit },
+        });
+        volumeMounts.push({
+          name,
+          mountPath: volume.mountPath,
+          subPath: volume.subPath,
+          mountPropagation: volume.mountPropagation,
+          subPathExpr: volume.subPathExpr,
+        });
+        continue;
+      }
 
       if (volume.type === "secret") {
         volumes.push({

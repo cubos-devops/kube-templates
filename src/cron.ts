@@ -1,5 +1,5 @@
 import type { io } from "./generated";
-import { generateYaml, mappedEnvs } from "./helpers";
+import { generateYaml, mappedEnvs, parseMemory } from "./helpers";
 import type { ObjectMeta } from "./kubernetes";
 import { CronJob } from "./kubernetes";
 
@@ -8,6 +8,49 @@ type EnvValue =
   | number
   | { secretName: string; key: string }
   | { fieldPath: string };
+
+export type EmptyDirVolume = {
+  type: "emptyDir";
+  mountPath: string;
+} & (
+  | {
+      medium?: undefined;
+      /**
+       * On disk, going over the limit does not fail the write with "disk
+       * full": the kubelet evicts the pod. Leave headroom and delete files the
+       * app no longer needs.
+       */
+      sizeLimit?: string;
+    }
+  | {
+      /**
+       * Backs the volume with tmpfs, which counts against the container
+       * memory limit. Without a size the tmpfs grows until the container is
+       * OOMKilled, so `sizeLimit` is required.
+       */
+      medium: "Memory";
+      /**
+       * Size of the tmpfs: a write past it fails with "disk full". It must be
+       * smaller than the container memory limit, which the process also
+       * needs; the YAML generation throws otherwise.
+       */
+      sizeLimit: string;
+    }
+);
+
+export function assertMemoryEmptyDirFits(
+  volume: EmptyDirVolume,
+  memoryLimit: string | number,
+) {
+  if (
+    volume.medium === "Memory" &&
+    parseMemory(volume.sizeLimit) >= parseMemory(memoryLimit)
+  ) {
+    throw new Error(
+      `The sizeLimit of the Memory emptyDir at ${volume.mountPath} must be smaller than the container memory limit`,
+    );
+  }
+}
 
 interface CronSpec {
   schedule: string;
@@ -26,14 +69,17 @@ interface CronSpec {
     request: string | number;
     limit: string | number;
   };
-  volumes?: Array<{
-    type: "configMap" | "secret";
-    optional?: boolean;
-    readOnly?: boolean;
-    name: string;
-    mountPath: string;
-    items?: Array<{ key: string; path: string }>;
-  }>;
+  volumes?: Array<
+    | {
+        type: "configMap" | "secret";
+        optional?: boolean;
+        readOnly?: boolean;
+        name: string;
+        mountPath: string;
+        items?: Array<{ key: string; path: string }>;
+      }
+    | EmptyDirVolume
+  >;
   backoffLimit?: number;
   labels?: Record<string, string>;
   imagePullSecrets?: string[];
@@ -57,6 +103,16 @@ export class Cron {
 
     for (const volume of this.spec.volumes ?? []) {
       const name = `vol-${volume.mountPath.replace(/[^a-zA-Z0-9]/gu, "")}`;
+
+      if (volume.type === "emptyDir") {
+        assertMemoryEmptyDirFits(volume, this.spec.memory.limit);
+        volumes.push({
+          name,
+          emptyDir: { medium: volume.medium, sizeLimit: volume.sizeLimit },
+        });
+        volumeMounts.push({ name, mountPath: volume.mountPath });
+        continue;
+      }
 
       if (volume.type === "secret") {
         volumes.push({
