@@ -26,14 +26,22 @@ interface CronSpec {
     request: string | number;
     limit: string | number;
   };
-  volumes?: Array<{
-    type: "configMap" | "secret";
-    optional?: boolean;
-    readOnly?: boolean;
-    name: string;
-    mountPath: string;
-    items?: Array<{ key: string; path: string }>;
-  }>;
+  volumes?: Array<
+    | {
+        type: "configMap" | "secret";
+        optional?: boolean;
+        readOnly?: boolean;
+        name: string;
+        mountPath: string;
+        items?: Array<{ key: string; path: string }>;
+      }
+    | {
+        type: "emptyDir";
+        mountPath: string;
+        medium?: "Memory";
+        sizeLimit?: string;
+      }
+  >;
   backoffLimit?: number;
   labels?: Record<string, string>;
   imagePullSecrets?: string[];
@@ -57,6 +65,15 @@ export class Cron {
 
     for (const volume of this.spec.volumes ?? []) {
       const name = `vol-${volume.mountPath.replace(/[^a-zA-Z0-9]/gu, "")}`;
+
+      if (volume.type === "emptyDir") {
+        volumes.push({
+          name,
+          emptyDir: { medium: volume.medium, sizeLimit: volume.sizeLimit },
+        });
+        volumeMounts.push({ name, mountPath: volume.mountPath });
+        continue;
+      }
 
       if (volume.type === "secret") {
         volumes.push({

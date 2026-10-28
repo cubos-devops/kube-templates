@@ -104,14 +104,20 @@ export interface StatelessAppSpec {
       startup?: StartupProbeConfig;
     };
   volumes?: Array<
-    {
-      type: "configMap" | "secret";
-      name: string;
-      optional?: boolean;
-      mountPath: string;
-      defaultMode?: number;
-      items?: Array<{ key: string; path: string }>;
-    } & io.k8s.api.core.v1.VolumeMount
+    | ({
+        type: "configMap" | "secret";
+        name: string;
+        optional?: boolean;
+        mountPath: string;
+        defaultMode?: number;
+        items?: Array<{ key: string; path: string }>;
+      } & io.k8s.api.core.v1.VolumeMount)
+    | ({
+        type: "emptyDir";
+        mountPath: string;
+        medium?: "Memory";
+        sizeLimit?: string;
+      } & Omit<io.k8s.api.core.v1.VolumeMount, "name" | "readOnly">)
   >;
   crons?: Array<{
     name: string;
@@ -332,6 +338,21 @@ export class StatelessApp {
 
     for (const volume of this.spec.volumes ?? []) {
       const name = `vol-${volume.mountPath.replace(/[^a-zA-Z0-9]/gu, "")}`;
+
+      if (volume.type === "emptyDir") {
+        volumes.push({
+          name,
+          emptyDir: { medium: volume.medium, sizeLimit: volume.sizeLimit },
+        });
+        volumeMounts.push({
+          name,
+          mountPath: volume.mountPath,
+          subPath: volume.subPath,
+          mountPropagation: volume.mountPropagation,
+          subPathExpr: volume.subPathExpr,
+        });
+        continue;
+      }
 
       if (volume.type === "secret") {
         volumes.push({
