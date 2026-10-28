@@ -115,7 +115,17 @@ export interface StatelessAppSpec {
     | ({
         type: "emptyDir";
         mountPath: string;
+        /**
+         * "Memory" backs the volume with tmpfs: everything written counts
+         * against the container memory limit, so without a `sizeLimit` a
+         * large write ends in an OOMKill.
+         */
         medium?: "Memory";
+        /**
+         * Going over the limit does not fail the write with "disk full": the
+         * kubelet evicts the pod. Leave headroom and delete files the app no
+         * longer needs.
+         */
         sizeLimit?: string;
       } & Omit<io.k8s.api.core.v1.VolumeMount, "name" | "readOnly">)
   >;
