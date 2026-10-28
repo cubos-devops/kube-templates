@@ -1,5 +1,5 @@
 import type { io } from "./generated";
-import { generateYaml, mappedEnvs } from "./helpers";
+import { generateYaml, mappedEnvs, parseMemory } from "./helpers";
 import type { ObjectMeta } from "./kubernetes";
 import { CronJob } from "./kubernetes";
 
@@ -16,22 +16,41 @@ export type EmptyDirVolume = {
   | {
       medium?: undefined;
       /**
-       * Going over the limit does not fail the write with "disk full": the
-       * kubelet evicts the pod. Leave headroom and delete files the app no
-       * longer needs.
+       * On disk, going over the limit does not fail the write with "disk
+       * full": the kubelet evicts the pod. Leave headroom and delete files the
+       * app no longer needs.
        */
       sizeLimit?: string;
     }
   | {
       /**
-       * Backs the volume with tmpfs: everything written counts against the
-       * container memory limit, so `sizeLimit` is required to avoid an
-       * OOMKill.
+       * Backs the volume with tmpfs, which counts against the container
+       * memory limit. Without a size the tmpfs grows until the container is
+       * OOMKilled, so `sizeLimit` is required.
        */
       medium: "Memory";
+      /**
+       * Size of the tmpfs: a write past it fails with "disk full". It must be
+       * smaller than the container memory limit, which the process also
+       * needs; the YAML generation throws otherwise.
+       */
       sizeLimit: string;
     }
 );
+
+export function assertMemoryEmptyDirFits(
+  volume: EmptyDirVolume,
+  memoryLimit: string | number,
+) {
+  if (
+    volume.medium === "Memory" &&
+    parseMemory(volume.sizeLimit) >= parseMemory(memoryLimit)
+  ) {
+    throw new Error(
+      `The sizeLimit of the Memory emptyDir at ${volume.mountPath} must be smaller than the container memory limit`,
+    );
+  }
+}
 
 interface CronSpec {
   schedule: string;
@@ -86,6 +105,7 @@ export class Cron {
       const name = `vol-${volume.mountPath.replace(/[^a-zA-Z0-9]/gu, "")}`;
 
       if (volume.type === "emptyDir") {
+        assertMemoryEmptyDirFits(volume, this.spec.memory.limit);
         volumes.push({
           name,
           emptyDir: { medium: volume.medium, sizeLimit: volume.sizeLimit },

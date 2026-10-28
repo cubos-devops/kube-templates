@@ -1,6 +1,6 @@
 import { URL } from "node:url";
 
-import { Cron, type EmptyDirVolume } from "./cron";
+import { assertMemoryEmptyDirFits, Cron, type EmptyDirVolume } from "./cron";
 import type { io } from "./generated";
 import type { IngressClasses } from "./helpers";
 import {
@@ -336,6 +336,7 @@ export class StatelessApp {
       const name = `vol-${volume.mountPath.replace(/[^a-zA-Z0-9]/gu, "")}`;
 
       if (volume.type === "emptyDir") {
+        assertMemoryEmptyDirFits(volume, this.spec.memory.limit);
         volumes.push({
           name,
           emptyDir: { medium: volume.medium, sizeLimit: volume.sizeLimit },

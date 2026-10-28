@@ -58,6 +58,51 @@ describe("statelessApp volumes", () => {
     expect(spec.volumes).toHaveLength(1);
   });
 
+  it("should throw when a Memory emptyDir does not fit in the memory limit", () => {
+    const app = new StatelessApp(basicAppMetadataConfig, {
+      ...basicAppSpecConfig,
+      volumes: [
+        {
+          type: "emptyDir",
+          mountPath: "/cache",
+          medium: "Memory",
+          sizeLimit: "512Mi",
+        },
+      ],
+    });
+
+    expect(() => app.yaml).toThrow(
+      "The sizeLimit of the Memory emptyDir at /cache must be smaller than the container memory limit",
+    );
+  });
+
+  it("should check a Memory emptyDir against the cron memory limit", () => {
+    const app = new StatelessApp(basicAppMetadataConfig, {
+      ...basicAppSpecConfig,
+      volumes: [
+        {
+          type: "emptyDir",
+          mountPath: "/cache",
+          medium: "Memory",
+          sizeLimit: "256Mi",
+        },
+      ],
+      crons: [
+        {
+          name: "cleanup",
+          schedule: "0 * * * *",
+          command: ["cleanup"],
+          args: [],
+          memory: { limit: "128Mi" },
+        },
+      ],
+    });
+
+    expect(() => app.yaml).toThrow(
+      "The sizeLimit of the Memory emptyDir at /cache must be smaller than the container memory limit",
+    );
+  });
+
   it("should keep secret volumes read-only by default next to an emptyDir", () => {
     const app = new StatelessApp(basicAppMetadataConfig, {
       ...basicAppSpecConfig,
