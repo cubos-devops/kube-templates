@@ -1,0 +1,59 @@
+name: Commit trailers
+
+# Rejeita commits com trailer `Co-Authored-By` de assistentes de IA. O ruleset de
+# "commit metadata" do GitHub não é aplicado no plano Free da organização, então a checagem
+# roda aqui. Para valer no merge, marque o check "Commit trailers" como obrigatório na `main`.
+on:
+  pull_request:
+  push:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+env:
+  # Nomes de IAs separados por `|` (regex, sem diferenciar maiúsculas). Para bloquear
+  # outra, basta acrescentar o nome aqui.
+  AI_PATTERN: "claude|anthropic"
+
+jobs:
+  check:
+    name: Commit trailers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check commit messages
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = "pull_request" ]; then
+            range="$BASE_SHA..$HEAD_SHA"
+          elif [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+            && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="$BEFORE..$AFTER"
+          else
+            # branch nova ou force-push: confere só o que não está na branch padrão
+            range="origin/$DEFAULT_BRANCH..$AFTER"
+          fi
+
+          echo "Conferindo commits em $range"
+          failed=0
+          for sha in $(git rev-list "$range"); do
+            if git log -1 --format=%B "$sha" \
+              | grep -Eiq "^[[:space:]]*co-authored-by:.*($AI_PATTERN)"; then
+              echo "::error title=Trailer de co-autoria de IA::O commit ${sha:0:7} tem um Co-Authored-By de assistente de IA. Remova o trailer da mensagem do commit."
+              failed=1
+            fi
+          done
+
+          exit "$failed"
