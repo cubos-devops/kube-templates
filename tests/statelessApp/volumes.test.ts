@@ -1,5 +1,5 @@
 import { loadAll } from "js-yaml";
-import { StatelessApp } from "../../src/statelessapp";
+import { StatelessApp, type StatelessAppSpec } from "../../src/statelessapp";
 import { basicAppMetadataConfig, basicAppSpecConfig } from "./fixture";
 
 function getDocs(app: StatelessApp): any[] {
@@ -31,12 +31,31 @@ describe("statelessApp volumes", () => {
   it("should pass the emptyDir medium through", () => {
     const app = new StatelessApp(basicAppMetadataConfig, {
       ...basicAppSpecConfig,
-      volumes: [{ type: "emptyDir", mountPath: "/cache", medium: "Memory" }],
+      volumes: [
+        {
+          type: "emptyDir",
+          mountPath: "/cache",
+          medium: "Memory",
+          sizeLimit: "64Mi",
+        },
+      ],
     });
 
     expect(getPodSpec(app).volumes).toEqual([
-      { name: "vol-cache", emptyDir: { medium: "Memory" } },
+      { name: "vol-cache", emptyDir: { medium: "Memory", sizeLimit: "64Mi" } },
     ]);
+  });
+
+  it("should require a sizeLimit on a Memory emptyDir", () => {
+    const spec: StatelessAppSpec = {
+      ...basicAppSpecConfig,
+      volumes: [
+        // @ts-expect-error tmpfs without a sizeLimit can OOMKill the container
+        { type: "emptyDir", mountPath: "/cache", medium: "Memory" },
+      ],
+    };
+
+    expect(spec.volumes).toHaveLength(1);
   });
 
   it("should keep secret volumes read-only by default next to an emptyDir", () => {

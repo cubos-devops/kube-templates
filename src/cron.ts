@@ -9,6 +9,30 @@ type EnvValue =
   | { secretName: string; key: string }
   | { fieldPath: string };
 
+export type EmptyDirVolume = {
+  type: "emptyDir";
+  mountPath: string;
+} & (
+  | {
+      medium?: undefined;
+      /**
+       * Going over the limit does not fail the write with "disk full": the
+       * kubelet evicts the pod. Leave headroom and delete files the app no
+       * longer needs.
+       */
+      sizeLimit?: string;
+    }
+  | {
+      /**
+       * Backs the volume with tmpfs: everything written counts against the
+       * container memory limit, so `sizeLimit` is required to avoid an
+       * OOMKill.
+       */
+      medium: "Memory";
+      sizeLimit: string;
+    }
+);
+
 interface CronSpec {
   schedule: string;
   image: string;
@@ -35,22 +59,7 @@ interface CronSpec {
         mountPath: string;
         items?: Array<{ key: string; path: string }>;
       }
-    | {
-        type: "emptyDir";
-        mountPath: string;
-        /**
-         * "Memory" backs the volume with tmpfs: everything written counts
-         * against the container memory limit, so without a `sizeLimit` a
-         * large write ends in an OOMKill.
-         */
-        medium?: "Memory";
-        /**
-         * Going over the limit does not fail the write with "disk full": the
-         * kubelet evicts the pod. Leave headroom and delete files the app no
-         * longer needs.
-         */
-        sizeLimit?: string;
-      }
+    | EmptyDirVolume
   >;
   backoffLimit?: number;
   labels?: Record<string, string>;
